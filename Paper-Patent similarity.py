@@ -15,8 +15,8 @@ Researchers can modify the paths and parameters below according to their needs.
 PAPERS_PATH = 'DeepDiveAI.csv'  # Path to papers data
 PATENTS_PATH = 'DeepPatentAI.csv'  # Path to patents data
 OUTPUT_PATH = 'similarity_matrix.csv'  # Output file path
-PAPERS_LIMIT = 100000  # Number of papers to process, -1 for all
-PATENTS_LIMIT = 100000  # Number of patents to process, -1 for all
+PAPERS_LIMIT = 10000  # Number of papers to process, -1 for all
+PATENTS_LIMIT = 10000  # Number of patents to process, -1 for all
 MODEL_NAME = 'all-MiniLM-L6-v2'  # Pretrained model name
 BATCH_SIZE = 512  # Encoding batch size
 SIMILARITY_BATCH = 1000  # Similarity calculation batch size
