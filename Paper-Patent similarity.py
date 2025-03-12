@@ -8,19 +8,19 @@ import os
 """
 Paper-Patent Similarity Calculator for DeepInnovationAI Dataset
 This script calculates semantic similarity between academic papers and patents.
-Researchers can modify the paths and parameters below according to their needs.
+Output is a table with Paper ID, Patent ID, and similarity score.
 """
 
 # Configurable parameters - researchers can modify as needed
-PAPERS_PATH = 'DeepDiveAI.csv'  # Path to papers data
-PATENTS_PATH = 'DeepPatentAI.csv'  # Path to patents data
-OUTPUT_PATH = 'similarity_matrix.csv'  # Output file path
+PAPERS_PATH = '../DeepDiveAI.csv'  # Path to papers data
+PATENTS_PATH = '../DeepPatentAI.csv'  # Path to patents data
+OUTPUT_PATH = '../DeepCosineAI.csv'  # Output file path
 PAPERS_LIMIT = 10000  # Number of papers to process, -1 for all
 PATENTS_LIMIT = 10000  # Number of patents to process, -1 for all
 MODEL_NAME = 'all-MiniLM-L6-v2'  # Pretrained model name
 BATCH_SIZE = 512  # Encoding batch size
 SIMILARITY_BATCH = 1000  # Similarity calculation batch size
-SIMILARITY_THRESHOLD = 0.6  # High similarity threshold for pair extraction
+SIMILARITY_THRESHOLD = 0.0  # Minimum similarity threshold (0 = save all pairs)
 
 # Initialize BERT model
 print(f"Loading model: {MODEL_NAME}")
@@ -81,41 +81,52 @@ paper_embeddings = batch_encode(papers_df['keywords_text'].tolist())
 print("Computing patent embeddings...")
 patent_embeddings = batch_encode(patents_df['keywords_text'].tolist())
 
-# Calculate cosine similarity
-def calculate_similarity(paper_embeddings, patent_embeddings, batch_size=SIMILARITY_BATCH):
-    """Batch calculation of paper-patent similarity"""
-    similarity_matrix = []
-    for i in tqdm(range(0, len(paper_embeddings), batch_size), desc="Calculating similarity"):
+# Calculate cosine similarity and directly save as pairs to save memory
+def calculate_similarity_pairs(paper_embeddings, patent_embeddings, papers_df, patents_df, 
+                             batch_size=SIMILARITY_BATCH, threshold=SIMILARITY_THRESHOLD, 
+                             output_path=OUTPUT_PATH):
+    """
+    Calculate similarity and directly output as pairs to save memory
+    """
+    # Create output file and write header
+    with open(output_path, 'w') as f:
+        f.write("Paper_ID,Patent_ID,Similarity\n")
+    
+    total_pairs = 0
+    
+    # Process in batches to save memory
+    for i in tqdm(range(0, len(paper_embeddings), batch_size), desc="Calculating similarity pairs"):
         paper_batch = paper_embeddings[i:i + batch_size]
+        paper_ids = papers_df['ID'].iloc[i:i + batch_size].tolist()
+        
+        # Calculate similarity for this batch against all patents
         batch_sim = cosine_similarity(paper_batch.cpu(), patent_embeddings.cpu())
-        similarity_matrix.append(torch.tensor(batch_sim))
-    return torch.cat(similarity_matrix, axis=0)
+        
+        # Convert to pairs and save directly to file
+        pairs_batch = []
+        for j in range(batch_sim.shape[0]):
+            for k in range(batch_sim.shape[1]):
+                similarity = batch_sim[j, k]
+                if similarity >= threshold:
+                    pairs_batch.append(f"{paper_ids[j]},{patents_df['ID'].iloc[k]},{similarity:.6f}\n")
+        
+        # Write batch to file
+        with open(output_path, 'a') as f:
+            f.writelines(pairs_batch)
+        
+        total_pairs += len(pairs_batch)
+        
+    print(f"Total {total_pairs} similarity pairs saved to {output_path}")
+    return total_pairs
 
-print(f"Calculating similarity matrix ({len(paper_embeddings)} × {len(patent_embeddings)})...")
-similarity_matrix = calculate_similarity(paper_embeddings, patent_embeddings)
+print(f"Calculating and saving similarity pairs...")
+total_pairs = calculate_similarity_pairs(paper_embeddings, patent_embeddings, 
+                                      papers_df, patents_df, 
+                                      threshold=SIMILARITY_THRESHOLD)
 
-# Convert results to DataFrame and save
-print(f"Saving complete similarity matrix to {OUTPUT_PATH}")
-similarity_df = pd.DataFrame(similarity_matrix.numpy(), columns=patents_df['ID'], index=papers_df['ID'])
-similarity_df.to_csv(OUTPUT_PATH)
+print(f"Calculation completed! {total_pairs} pairs saved to {OUTPUT_PATH}")
 
-# Extract and save high similarity pairs (optional)
-high_sim_pairs = []
-print(f"Extracting paper-patent pairs with similarity >= {SIMILARITY_THRESHOLD}...")
-for i in tqdm(range(similarity_matrix.shape[0]), desc="Processing high similarity pairs"):
-    for j in range(similarity_matrix.shape[1]):
-        if similarity_matrix[i, j] >= SIMILARITY_THRESHOLD:
-            high_sim_pairs.append({
-                'Paper_ID': papers_df.iloc[i]['ID'],
-                'Patent_ID': patents_df.iloc[j]['ID'],
-                'Similarity': similarity_matrix[i, j].item()
-            })
-
-if high_sim_pairs:
-    high_sim_df = pd.DataFrame(high_sim_pairs)
-    high_sim_df.sort_values('Similarity', ascending=False, inplace=True)
-    high_sim_path = 'high_similarity_pairs.csv'
-    high_sim_df.to_csv(high_sim_path, index=False)
-    print(f"Found {len(high_sim_pairs)} high similarity paper-patent pairs, saved to {high_sim_path}")
-
-print("Calculation completed!")
+# If you need to load the results for analysis later:
+# similarity_pairs = pd.read_csv(OUTPUT_PATH)
+# Top similarity pairs:
+# top_pairs = similarity_pairs.sort_values('Similarity', ascending=False).head(100)
